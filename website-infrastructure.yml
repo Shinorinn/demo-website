@@ -1,0 +1,84 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation Template cho Web Static: S3 + CloudFront + OAC'
+
+Parameters:
+  BucketName:
+    Type: String
+    Description: "Bucket Name of the bucket which used to save all files"
+
+Resources:
+  # 1. Tạo S3 Bucket để chứa file HTML
+  MyWebBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  # 2. Tạo Origin Access Control (Chìa khóa để CloudFront vào S3)
+  MyCloudFrontOAC:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties: 
+      OriginAccessControlConfig: 
+        Description: "Access Control for Static Website"
+        Name: !Sub "${AWS::StackName}-oac"
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # 3. Tạo CloudFront Distribution (CDN)
+  MyCloudFrontDist:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html # Tự động mở index.html khi vào trang chủ
+        Origins:
+          - Id: MyS3Origin
+            DomainName: !GetAtt MyWebBucket.DomainName
+            S3OriginConfig:
+              OriginAccessIdentity: "" # Để trống vì dùng OAC
+            OriginAccessControlId: !GetAtt MyCloudFrontOAC.Id
+        DefaultCacheBehavior:
+          TargetOriginId: MyS3Origin
+          ViewerProtocolPolicy: redirect-to-https # Tự động chuyển HTTP sang HTTPS
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD, OPTIONS]
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true # Dùng chứng chỉ SSL miễn phí của AWS
+
+  # 4. Chính sách cho phép CloudFront đọc S3 Bucket
+  MyBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MyWebBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub "${MyWebBucket.Arn}/*"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${MyCloudFrontDist}"
+
+Outputs:
+  WebsiteURL:
+    Description: "Link trang web của bạn (HTTPS)"
+    Value: !Join ['', ['https://', !GetAtt MyCloudFrontDist.DomainName]]
+  BucketName:
+    Description: "Tên Bucket S3 (Upload file vào đây)"
+    Value: !Ref MyWebBucket

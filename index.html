@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dino Run | Game</title>
+    <style>
+        :root {
+            --primary: #4f46e5;
+            --bg-gradient: linear-gradient(135deg, #FF9A9E 0%, #FECFEF 99%, #FECFEF 100%);
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-image: var(--bg-gradient);
+            font-family: 'Segoe UI', sans-serif;
+            overflow: hidden;
+        }
+
+        .game-card {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.2);
+            text-align: center;
+            position: relative;
+            max-width: 800px;
+            width: 90%;
+        }
+
+        h1 {
+            color: #333;
+            margin: 0 0 10px 0;
+            font-size: 1.5rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        canvas {
+            background-color: #f7fafc;
+            border-radius: 10px;
+            border: 2px solid #e2e8f0;
+            display: block;
+            margin: 0 auto;
+            max-width: 100%;
+            cursor: pointer;
+        }
+
+        .score-board {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 20px;
+            font-weight: bold;
+            color: #4a5568;
+            font-size: 1.1rem;
+        }
+
+        .controls-hint {
+            margin-top: 15px;
+            color: #718096;
+            font-size: 0.9rem;
+        }
+
+        .key {
+            display: inline-block;
+            background: #edf2f7;
+            padding: 2px 8px;
+            border-radius: 4px;
+            border: 1px solid #cbd5e0;
+            box-shadow: 0 2px 0 #cbd5e0;
+            font-family: monospace;
+            font-size: 0.8rem;
+        }
+
+        #overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+            z-index: 10;
+        }
+
+        #overlay h2 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+
+        #overlay p {
+            margin: 10px 0;
+            color: #666;
+        }
+
+        .btn-start {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 12px 40px;
+            font-size: 1.1rem;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: transform 0.2s;
+            margin-top: 15px;
+            font-weight: bold;
+        }
+        
+        .btn-start:hover { 
+            transform: scale(1.05); 
+            background: #4338ca; 
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="game-card">
+        <h1>🦖 Dino Run</h1>
+        
+        <div class="score-board">
+            <span>Điểm: <span id="score">0</span></span>
+            <span>Kỷ lục: <span id="highScore">0</span></span>
+        </div>
+
+        <div style="position: relative; display: inline-block;">
+            <canvas id="gameCanvas" width="600" height="200"></canvas>
+            
+            <div id="overlay">
+                <h2 id="overlayTitle">Sẵn sàng chưa?</h2>
+                <p id="overlaySub">Nhấn Space hoặc Chạm để nhảy</p>
+                <button class="btn-start" id="startBtn">CHƠI NGAY</button>
+            </div>
+        </div>
+
+        <p class="controls-hint">
+            Dùng phím <span class="key">Space</span> hoặc <span class="key">↑</span> để nhảy.
+        </p>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score');
+        const highScoreEl = document.getElementById('highScore');
+        const overlay = document.getElementById('overlay');
+        const startBtn = document.getElementById('startBtn');
+        const overlayTitle = document.getElementById('overlayTitle');
+        const overlaySub = document.getElementById('overlaySub');
+        
+        let gameSpeed = 5;
+        let score = 0;
+        let highScore = localStorage.getItem('dinoHighScore') || 0;
+        let isGameOver = true;
+        let animationId;
+        let frame = 0;
+        let obstacleSpawnRate = 100;
+
+        highScoreEl.innerText = highScore;
+
+        const dino = {
+            x: 50,
+            y: 150,
+            w: 30,
+            h: 40,
+            dy: 0,
+            jumpForce: 12,
+            gravity: 0.6,
+            grounded: false,
+            color: '#4f46e5',
+            
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, this.y, this.w, this.h);
+                ctx.fillStyle = 'white';
+                ctx.fillRect(this.x + 20, this.y + 8, 5, 5);
+                ctx.fillRect(this.x + 20, this.y + 18, 5, 5);
+            },
+            
+            jump() {
+                if (this.grounded) {
+                    this.dy = -this.jumpForce;
+                    this.grounded = false;
+                }
+            },
+            
+            update() {
+                this.dy += this.gravity;
+                this.y += this.dy;
+                
+                if (this.y >= 150) {
+                    this.y = 150;
+                    this.dy = 0;
+                    this.grounded = true;
+                } else {
+                    this.grounded = false;
+                }
+                
+                this.draw();
+            }
+        };
+
+        const obstacles = [];
+        
+        class Obstacle {
+            constructor() {
+                this.h = Math.random() * 30 + 20;
+                this.w = 20;
+                this.x = canvas.width;
+                this.y = 190 - this.h;
+                this.color = '#e53e3e';
+            }
+            
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, this.y, this.w, this.h);
+            }
+            
+            update() {
+                this.x -= gameSpeed;
+                this.draw();
+            }
+        }
+
+        function startGame() {
+            startBtn.blur();
+            
+            isGameOver = false;
+            score = 0;
+            gameSpeed = 5;
+            obstacleSpawnRate = 100;
+            obstacles.length = 0;
+            scoreEl.innerText = 0;
+            overlay.classList.add('hidden');
+            dino.y = 150;
+            dino.dy = 0;
+            dino.grounded = true;
+            frame = 0;
+            
+            animate();
+        }
+
+        function animate() {
+            if (isGameOver) return;
+            
+            animationId = requestAnimationFrame(animate);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.beginPath();
+            ctx.moveTo(0, 190);
+            ctx.lineTo(canvas.width, 190);
+            ctx.strokeStyle = '#cbd5e0';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            frame++;
+            if (frame % obstacleSpawnRate === 0) {
+                if (Math.random() > 0.2) {
+                    obstacles.push(new Obstacle());
+                }
+            }
+
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                let obs = obstacles[i];
+                obs.update();
+
+                if (obs.x + obs.w < 0) {
+                    obstacles.splice(i, 1);
+                    score++;
+                    scoreEl.innerText = score;
+                    
+                    if (score % 5 === 0) {
+                        gameSpeed += 0.3;
+                        obstacleSpawnRate = Math.max(60, obstacleSpawnRate - 2);
+                    }
+                    continue;
+                }
+
+                if (checkCollision(dino, obs)) {
+                    gameOver();
+                    return;
+                }
+            }
+
+            dino.update();
+        }
+
+        function checkCollision(rect1, rect2) {
+            return rect1.x < rect2.x + rect2.w &&
+                   rect1.x + rect1.w > rect2.x &&
+                   rect1.y < rect2.y + rect2.h &&
+                   rect1.y + rect1.h > rect2.y;
+        }
+
+        function gameOver() {
+            isGameOver = true;
+            cancelAnimationFrame(animationId);
+            
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('dinoHighScore', highScore);
+                highScoreEl.innerText = highScore;
+            }
+
+            overlayTitle.innerText = "GAME OVER!";
+            overlaySub.innerText = "Điểm của bạn: " + score;
+            startBtn.innerText = "Chơi Lại";
+            overlay.classList.remove('hidden');
+        }
+
+        startBtn.addEventListener('click', startGame);
+
+        document.addEventListener('keydown', (e) => {
+            const isJumpKey = e.code === 'Space' || e.key === ' ' || e.keyCode === 32 || e.code === 'ArrowUp';
+            
+            if (isJumpKey) {
+                e.preventDefault();
+                if (!isGameOver) {
+                    dino.jump();
+                } else {
+                    startGame();
+                }
+            }
+        });
+
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if (!isGameOver) {
+                dino.jump();
+            } else {
+                startGame();
+            }
+        });
+
+        canvas.addEventListener('click', () => {
+            if (!isGameOver) {
+                dino.jump();
+            }
+        });
+    </script>
+</body>
+</html>
